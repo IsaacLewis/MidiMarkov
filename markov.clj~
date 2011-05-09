@@ -1,0 +1,77 @@
+(import '(javax.sound.midi.spi MidiFileReader)
+	'(javax.sound.midi MidiSystem Sequence MidiEvent ShortMessage Synthesizer)
+	'(java.io File))
+
+(def f (File. "terra1.mid"))
+(def s (. MidiSystem getSequence f))
+(def sr (. MidiSystem getSequencer))
+(. sr open)
+(. sr setSequence s)
+(. sr start)
+(. sr stop)
+
+(def *example-model*
+     {:start ["the"]
+      "the" ["cat" "mat"]
+      "cat" ["ate" "miaowed"]
+      "ate" ["fish" "cheezburger"]})
+
+(defn rand-select [vec]
+  (get vec (rand-int (count vec))))
+
+(defn get-next
+  "Gets a random token that could follow last-token"
+  [model last-token]
+  (rand-select (model last-token)))
+
+
+(defn new-model [order]
+  #^{:order order} {(vec (replicate order :start)) []})
+
+(defn order [model] (:order (meta model)))
+
+(defn generate-string   
+  "Generates a random string from model"
+  [model]
+  (let [prev-tokens (replicate (order model) :start)]
+    (loop [generated "" prev-tokens prev-tokens]
+      (let [next (get-next model prev-tokens)]
+	(cond
+	  (and (= :end next) 
+	       (or (> (.length generated) 30) (< (.length generated) 3))) (generate-string model)
+	  (= :end next) generated
+	  :else (recur (str generated next) (conj (vec (rest prev-tokens)) next)))))))
+
+(defn add-tuple 
+  "Eg, if tuple is [1 2], adds [1] -> 2 to the model. If tuple is [1 2 3], adds [1 2] -> 3 to the model."
+  [model tuple]
+  (if (not (= 
+	    (count tuple) 
+	    (+ 1 (:order (meta model)))))
+	   (println "Model and tuple mismatched"))
+
+  (let [left-side (vec (butlast tuple))
+	right-side (last tuple)
+	old-token-list (model left-side)]
+    (if (nil? old-token-list)
+      (assoc model left-side [right-side])
+      (assoc model left-side (conj old-token-list right-side)))))
+    
+(defn add-token-string 
+  "Read a string of tokens and add the information gained to model"
+  [model tokens]
+  (let [order (order model)]
+    (loop [inputs (partition (+ 1 order)
+			     1 
+			     (into (vec (replicate order :start)) (conj tokens :end)))
+	 model model]
+    (if (empty? inputs) 
+      model
+      (recur (rest inputs) (add-tuple model (first inputs)))))))
+
+(defn add-token-strings [model strings]
+  (if (empty? strings) 
+    model
+    (add-token-strings (add-token-string model (first strings)) (rest strings))))
+
+(def animal-tokens (map #(vec (.toCharArray %)) animals))

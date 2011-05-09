@@ -1,0 +1,81 @@
+(ns midimarkov.midi)
+
+(import '(javax.sound.midi.spi MidiFileReader)
+	'(javax.sound.midi MidiSystem Sequence MidiEvent MidiMessage ShortMessage Synthesizer Track)
+	'(java.io File))
+
+(defn map-indexed
+  "Returns a lazy sequence consisting of the result of applying f to 0
+  and the first item of coll, followed by applying f to 1 and the second
+  item in coll, etc, until coll is exhausted. Thus function f should
+  accept 2 arguments, index and item."
+  {:added "1.2"}
+  [f coll]
+  (letfn [(mapi [idx coll]
+            (lazy-seq
+             (when-let [s (seq coll)]
+               (if (chunked-seq? s)
+                 (let [c (chunk-first s)
+                       size (int (count c))
+                       b (chunk-buffer size)]
+                   (dotimes [i size]
+                     (chunk-append b (f (+ idx i) (.nth c i))))
+                   (chunk-cons (chunk b) (mapi (+ idx size) (chunk-rest s))))
+                 (cons (f idx (first s)) (mapi (inc idx) (rest s)))))))]
+    (mapi 0 coll)))
+
+(defn get-sequence [file] (. MidiSystem getSequence file))
+
+(defn get-sequencer [] (. MidiSystem getSequencer))
+(def sr (get-sequencer))
+
+(defn open-and-play [file-name]
+  (let [s (get-sequence (File. "terra1.mid"))
+	sr (get-sequencer)]
+    (. *now-playing* stop)
+    (def *now-playing* sr)
+    (. sr open)
+    (. sr setSequence s)
+    (. sr start)))
+
+
+(. *now-playing* stop)
+
+(def note-on 0x90)
+(def note-off 0x80)
+(def note-names ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"])
+
+(def s (get-sequence (File. "terra1.mid")))
+
+(defn get-events [track]
+  (for [i (range (. track size))] (. track get i)))
+
+(defn interpret-event [event]
+  (print "@" (. event getTick) " ")
+  (let [message (.getMessage event)]
+    (if (instance? ShortMessage message)
+      (do
+	(print "Channel: " (.getChannel message) " ")
+	(let [command (.getCommand message)]
+	  (if (or (= command note-on) (= command note-off))
+	    (let [key (.getData1 message)
+		  octave (- (quot key 12) 1)
+		  note (mod key 12)
+		  note-name (nth note-names note)
+		  velocity (.getData2 message)
+		  on-or-off (if (= command note-off) "off" "on")]
+	      (println "Note" on-or-off note-name octave "key=" key "velocity:" velocity "command:" command))
+	  
+	    (println "Command:" command))))
+      
+      (println "Other message:" (. message getClass)))))
+
+
+(defn interpret-track [trackno track]
+  (println "Track" trackno ": size =" (. track size) "\n")
+  (dorun (map #(interpret-event %) (get-events track))))
+
+
+(defn interpret-seq [sequence]
+     (dorun (map-indexed #(interpret-track %1 %2) (. sequence getTracks))))
+
